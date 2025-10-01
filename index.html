@@ -9,9 +9,14 @@
   <!-- Manifest PWA -->
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#6C4AE2">
-  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+
+  <!-- iOS / Apple -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MiPlayer">
+
+  <!-- Android / general hint to be installable -->
+  <meta name="mobile-web-app-capable" content="yes">
 
   <!-- CSS -->
   <link rel="stylesheet" href="styles.css">
@@ -25,6 +30,9 @@
         <div style="display:flex;gap:8px">
           <button class="icon-btn" id="btnQueue" title="Cola">☰</button>
           <button class="icon-btn" id="btnMinimize" title="Minimizar">─</button>
+
+          <!-- BOTÓN INSTALAR (se muestra solo si beforeinstallprompt se dispara) -->
+          <button class="icon-btn" id="btnInstall" title="Instalar" style="display:none">⬇︎</button>
         </div>
       </div>
 

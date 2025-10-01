@@ -1,4 +1,4 @@
-// script.js — Completo: reproductor YouTube + Media Session + Notificaciones + Service Worker messaging
+// script.js — Versión original con añadidos: prompt install + mediaSession mejoras mínimas
 document.addEventListener('DOMContentLoaded', function () {
 
   /* =====================
@@ -111,6 +111,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  // Mejorada ligeramente: añade handlers adicionales y soporte a positionState (si está)
   function updateMediaSession(track, playing=false){
     if(!('mediaSession' in navigator)) return;
     try{
@@ -123,11 +124,49 @@ document.addEventListener('DOMContentLoaded', function () {
           { src: track?.thumb || './icons/icon-512.png', sizes: '512x512', type: 'image/png' }
         ]
       });
+
       navigator.mediaSession.setActionHandler('play', ()=>{ proxyMediaAction('play'); });
       navigator.mediaSession.setActionHandler('pause', ()=>{ proxyMediaAction('pause'); });
       navigator.mediaSession.setActionHandler('previoustrack', ()=>{ proxyMediaAction('prev'); });
       navigator.mediaSession.setActionHandler('nexttrack', ()=>{ proxyMediaAction('next'); });
+
+      // handlers complementarios (si el navegador los soporta)
+      try {
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+          const offset = (details && details.seekOffset) ? details.seekOffset : 10;
+          try {
+            const p = (videoShown && visiblePlayer && visiblePlayer.getCurrentTime) ? visiblePlayer : hiddenPlayer;
+            if(p && p.getCurrentTime && p.seekTo){
+              p.seekTo(Math.max(0, (p.getCurrentTime() || 0) - offset), true);
+            }
+          }catch(e){}
+        });
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+          const offset = (details && details.seekOffset) ? details.seekOffset : 10;
+          try {
+            const p = (videoShown && visiblePlayer && visiblePlayer.getCurrentTime) ? visiblePlayer : hiddenPlayer;
+            if(p && p.getCurrentTime && p.seekTo){
+              p.seekTo((p.getCurrentTime() || 0) + offset, true);
+            }
+          }catch(e){}
+        });
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          try {
+            const p = (videoShown && visiblePlayer && visiblePlayer.seekTo) ? visiblePlayer : hiddenPlayer;
+            if(p && typeof p.seekTo === 'function' && details && details.seekTime !== undefined){
+              p.seekTo(details.seekTime, true);
+            }
+          }catch(e){}
+        });
+        navigator.mediaSession.setActionHandler('stop', ()=>{ proxyMediaAction('pause'); });
+      } catch(e) {
+        // ignore if browser throws for unsupported handlers
+      }
+
       navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+
+      // actualizar posición si la API está presente
+      syncMediaPosition();
     }catch(e){ console.warn('mediaSession error', e); }
   }
 
@@ -203,6 +242,37 @@ document.addEventListener('DOMContentLoaded', function () {
   let shuffle = false;
   let progressTimer = null;
   let videoShown = true;
+
+  // PROMPT INSTALL: manejador beforeinstallprompt
+  let deferredInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    // evitar prompt automático
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    // mostrar botón instalar en UI
+    const btn = document.getElementById('btnInstall');
+    if(btn) btn.style.display = 'inline-flex';
+  });
+  // click instalar
+  const installBtn = document.getElementById('btnInstall');
+  if(installBtn){
+    installBtn.addEventListener('click', async ()=>{
+      if(!deferredInstallPrompt) return;
+      try {
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        if(choice && choice.outcome === 'accepted'){
+          showToast('App instalada');
+        } else {
+          showToast('Instalación cancelada');
+        }
+        deferredInstallPrompt = null;
+        installBtn.style.display = 'none';
+      } catch(e) {
+        console.warn('install prompt error', e);
+      }
+    });
+  }
 
   // carga dinámica de la API de YT
   (function loadYT(){ const t = document.createElement('script'); t.src = "https://www.youtube.com/iframe_api"; document.body.appendChild(t); })();
@@ -317,7 +387,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const miniSvg = $('#miniPlayIcon');
     if(miniSvg) miniSvg.innerHTML = playing ? `<path d="M6 19h4V5H6v14zM14 5v14h4V5h-4z" fill="#111"></path>` : `<path d="M5 3v18l15-9L5 3z" fill="#111"></path>`;
   }
-  function startProgressTimer(){ stopProgressTimer(); progressTimer = setInterval(()=>{ try{ const p = (videoShown && visiblePlayer && visiblePlayer.getCurrentTime) ? visiblePlayer : hiddenPlayer; if(!p || !p.getDuration) return; const dur = p.getDuration() || 0; const cur = p.getCurrentTime() || 0; const pct = dur > 0 ? (cur/dur)*100 : 0; $('#progressBar').style.width = pct + '%'; }catch(e){} }, 400); }
+  function startProgressTimer(){ stopProgressTimer(); progressTimer = setInterval(()=>{ try{ const p = (videoShown && visiblePlayer && visiblePlayer.getCurrentTime) ? visiblePlayer : hiddenPlayer; if(!p || !p.getDuration) return; const dur = p.getDuration() || 0; const cur = p.getCurrentTime() || 0; const pct = dur > 0 ? (cur/dur)*100 : 0; $('#progressBar').style.width = pct + '%'; syncMediaPosition(); }catch(e){} }, 400); }
   function stopProgressTimer(){ if(progressTimer) clearInterval(progressTimer); progressTimer=null; }
 
   /* vinyl spin */
@@ -733,6 +803,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
   /* helper showMini */
   function showMini(show=true){ if(show) $('#miniPlayer').classList.remove('hidden'); else $('#miniPlayer').classList.add('hidden'); }
+
+  /* =====================
+     MEDIA POSITION SYNC (Media Session positionState)
+     ===================== */
+  function syncMediaPosition(){
+    try{
+      if(!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+      const p = (videoShown && visiblePlayer && visiblePlayer.getCurrentTime) ? visiblePlayer : hiddenPlayer;
+      if(!p || !p.getDuration || !p.getCurrentTime) return;
+      const duration = p.getDuration() || 0;
+      const position = p.getCurrentTime() || 0;
+      if(isFinite(duration) && duration > 0){
+        navigator.mediaSession.setPositionState({
+          duration: duration,
+          playbackRate: 1,
+          position: position
+        });
+      }
+    }catch(e){}
+  }
 
 }); // DOMContentLoaded end
 
