@@ -30,7 +30,7 @@ self.addEventListener('activate', (evt) => {
 self.addEventListener('fetch', (evt) => {
   const req = evt.request;
   const url = new URL(req.url);
-  // no cache YouTube media (dejamos pasar)
+  // no cache YouTube media
   if (url.hostname.includes('youtube.com') || url.hostname.includes('ytimg.com') || url.pathname.endsWith('.mp4')) {
     return;
   }
@@ -50,12 +50,13 @@ self.addEventListener('fetch', (evt) => {
 /* Notification click handler: envía mensaje al cliente con la acción */
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  const action = event.action; // 'play' / 'pause' / 'next' / 'prev'
+  const action = event.action; // e.g. 'play', 'pause', 'next', 'prev'
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
       if (clientList && clientList.length > 0) {
         // manda el mensaje al primer client
         clientList[0].postMessage({ type: 'media-action', action: action || 'focus' });
+        // y enfoca esa ventana
         return clientList[0].focus();
       }
       // si no hay ventana, abre la app root
@@ -64,6 +65,7 @@ self.addEventListener('notificationclick', function(event) {
   );
 });
 
+/* cuando la notificación se cierra (opcional) */
 self.addEventListener('notificationclose', function(event){
-  // limpieza opcional
+  // puedes hacer limpieza si necesitas
 });
